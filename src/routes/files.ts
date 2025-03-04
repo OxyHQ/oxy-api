@@ -25,90 +25,15 @@ interface AuthenticatedRequest extends Request {
 
 const router = Router();
 
-// Public route - Stream a file by ID (no auth required)
-router.get("/:id", (async (req: Request, res: Response) => {
-  if (!ObjectId.isValid(req.params.id)) {
-    return res.status(400).json({ message: "Invalid file ID" });
-  }
+// Public routes first
+router.get("/:id", streamFileHandler);
+router.get("/meta/:id", getFileMetadataHandler);
+router.get("/data/:ids", getFileDataHandler);
 
-  try {
-    console.log(`[Files] Public access request for file: ${req.params.id}`);
-    const readStream = await readFile(req.params.id);
-    if (!readStream) {
-      console.warn(`[Files] File not found: ${req.params.id}`);
-      return res.status(404).json({ message: "File not found" });
-    }
-    
-    // Set proper cache headers for public files
-    res.set({
-      'Cache-Control': 'public, max-age=31536000',
-      'Expires': new Date(Date.now() + 31536000000).toUTCString()
-    });
-    
-    // Set up error handler for the read stream
-    readStream.on('error', (err) => {
-      console.error(`[Files] Stream error for file ${req.params.id}:`, err);
-      // Only send response if it hasn't been sent yet
-      if (!res.headersSent) {
-        res.status(500).json({ message: `Error streaming file: ${err.message}` });
-      }
-    });
-
-    // Pipe the file stream to response
-    readStream.pipe(res);
-  } catch (err: any) {
-    console.error(`[Files] Error reading file ${req.params.id}:`, err);
-    
-    // Handle specific MongoDB/GridFS errors
-    if (err.code === 'ENOENT' || err.message?.includes('FileNotFound')) {
-      return res.status(404).json({ message: "File not found" });
-    }
-    
-    // Handle other errors
-    if (!res.headersSent) {
-      res.status(500).json({ 
-        message: "An error occurred while retrieving the file",
-        error: err.message 
-      });
-    }
-  }
-}) as RequestHandler);
-
-// Public route - Get metadata for a file (no auth required)
-router.get("/meta/:id", (async (req: Request, res: Response) => {
-  if (!ObjectId.isValid(req.params.id)) {
-    return res.status(400).json({ message: "Invalid file ID" });
-  }
-
-  try {
-    console.log(`[Files] Metadata request for file: ${req.params.id}`);
-    const files = await findFiles({ _id: new ObjectId(req.params.id) });
-    if (!files || files.length === 0) {
-      console.warn(`[Files] File metadata not found: ${req.params.id}`);
-      return res.status(404).json({ message: "File not found" });
-    }
-
-    const file = files[0];
-    res.json({
-      id: file._id,
-      filename: file.metadata?.originalname || file.filename,
-      contentType: file.contentType,
-      size: file.length,
-      uploadDate: file.uploadDate
-    });
-  } catch (err: any) {
-    console.error(`[Files] Error getting file metadata ${req.params.id}:`, err);
-    res.status(500).json({ 
-      message: "Error retrieving file metadata",
-      error: err.message 
-    });
-  }
-}) as RequestHandler);
-
-// Apply auth middleware to all protected routes below
+// Apply auth middleware to all protected routes
 router.use(authMiddleware);
 
-// Upload a file linked to a user
+// Protected routes below
 router.post("/upload", ((req: AuthenticatedRequest, res: Response) => {
   // Cast req and res to any to bypass type conflicts between express and multer
   upload(req as any, res as any, async (err) => {
@@ -127,7 +52,6 @@ router.post("/upload", ((req: AuthenticatedRequest, res: Response) => {
       }
 
       const uploadedFiles = await Promise.all(req.files.map(async (file) => {
-        // Validate file information
         if (!file.originalname || !file.mimetype || !file.size) {
           throw new Error(`Invalid file information: ${JSON.stringify(file)}`);
         }
@@ -163,14 +87,13 @@ router.post("/upload", ((req: AuthenticatedRequest, res: Response) => {
   });
 }) as RequestHandler);
 
-// Get all files for the authenticated user
 router.get("/list/:userID", (async (req: AuthenticatedRequest, res: Response) => {
   try {
     if (!ObjectId.isValid(req.params.userID)) {
       return res.status(400).json({ message: "Invalid userID" });
     }
 
-    if (!req.user?.id || req.user.id !== req.params.userID) {
+    if (!req.user?._id || req.user._id.toString() !== req.params.userID) {
       return res.status(403).json({ message: "Unauthorized to access these files" });
     }
 
@@ -182,8 +105,92 @@ router.get("/list/:userID", (async (req: AuthenticatedRequest, res: Response) =>
   }
 }) as RequestHandler);
 
-// Get data of multiple files by IDs
-router.get("/data/:ids", (async (req: AuthenticatedRequest, res: Response) => {
+router.delete("/:id", (async (req: AuthenticatedRequest, res: Response) => {
+  if (!ObjectId.isValid(req.params.id)) {
+    return res.status(400).json({ message: "Invalid file ID" });
+  }
+
+  try {
+    // Verify file ownership before deletion
+    const files = await findFiles({ _id: new ObjectId(req.params.id) });
+    if (!files || files.length === 0) {
+      return res.status(404).json({ message: "File not found" });
+    }
+
+    const file = files[0];
+    if (file.metadata?.userID.toString() !== req.user?._id.toString()) {
+      return res.status(403).json({ message: "Unauthorized to delete this file" });
+    }
+
+    await deleteFile(req.params.id);
+    res.json({ message: "File deleted successfully" });
+  } catch (err: any) {
+    console.error(err);
+    res.status(500).json({ message: `An error occurred while deleting the file: ${err.message}` });
+  }
+}) as RequestHandler);
+
+// Helper function to handle streaming files
+async function streamFileHandler(req: Request, res: Response) {
+  if (!ObjectId.isValid(req.params.id)) {
+    return res.status(400).json({ message: "Invalid file ID" });
+  }
+
+  try {
+    console.log(`[Files] Public access request for file: ${req.params.id}`);
+    const readStream = await readFile(req.params.id);
+    if (!readStream) {
+      console.warn(`[Files] File not found: ${req.params.id}`);
+      return res.status(404).json({ message: "File not found" });
+    }
+    
+    res.set({
+      'Cache-Control': 'public, max-age=31536000',
+      'Expires': new Date(Date.now() + 31536000000).toUTCString()
+    });
+    
+    readStream.pipe(res);
+  } catch (err: any) {
+    console.error(`[Files] Error reading file ${req.params.id}:`, err);
+    if (!res.headersSent) {
+      res.status(500).json({ message: "Error retrieving file", error: err.message });
+    }
+  }
+}
+
+// Helper function to handle file metadata requests
+async function getFileMetadataHandler(req: Request, res: Response) {
+  if (!ObjectId.isValid(req.params.id)) {
+    return res.status(400).json({ message: "Invalid file ID" });
+  }
+
+  try {
+    console.log(`[Files] Metadata request for file: ${req.params.id}`);
+    const files = await findFiles({ _id: new ObjectId(req.params.id) });
+    if (!files || files.length === 0) {
+      console.warn(`[Files] File metadata not found: ${req.params.id}`);
+      return res.status(404).json({ message: "File not found" });
+    }
+
+    const file = files[0];
+    res.json({
+      id: file._id,
+      filename: file.metadata?.originalname || file.filename,
+      contentType: file.contentType,
+      size: file.length,
+      uploadDate: file.uploadDate
+    });
+  } catch (err: any) {
+    console.error(`[Files] Error getting file metadata ${req.params.id}:`, err);
+    res.status(500).json({ 
+      message: "Error retrieving file metadata",
+      error: err.message 
+    });
+  }
+}
+
+// Helper function to handle file data requests
+async function getFileDataHandler(req: Request, res: Response) {
   try {
     if (!req.params.ids) {
       return res.status(400).json({ message: "No file IDs provided" });
@@ -213,11 +220,11 @@ router.get("/data/:ids", (async (req: AuthenticatedRequest, res: Response) => {
     }
 
     const files = await findFiles({ _id: { $in: ids } });
+
     if (!files || files.length === 0) {
       return res.status(404).json({ message: "No files found" });
     }
 
-    // Check if we found all requested files
     if (files.length !== ids.length) {
       const foundIds = files.map(file => file._id.toString());
       const missingIds = ids.map(id => id.toString()).filter(id => !foundIds.includes(id));
@@ -244,21 +251,6 @@ router.get("/data/:ids", (async (req: AuthenticatedRequest, res: Response) => {
       error: err.message 
     });
   }
-}) as RequestHandler);
-
-// Delete a file
-router.delete("/:id", (async (req: AuthenticatedRequest, res: Response) => {
-  if (!ObjectId.isValid(req.params.id)) {
-    return res.status(400).json({ message: "Invalid file ID" });
-  }
-
-  try {
-    await deleteFile(req.params.id);
-    res.json({ message: "File deleted successfully" });
-  } catch (err: any) {
-    console.error(err);
-    res.status(500).json({ message: `An error occurred while deleting the file: ${err.message}` });
-  }
-}) as RequestHandler);
+}
 
 export default router;

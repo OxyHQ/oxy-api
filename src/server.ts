@@ -105,9 +105,9 @@ io.on('connection', (socket: AuthenticatedSocket) => {
   });
 });
 
-// Special handling for file upload requests
-app.use("/files/upload", (req, res, next) => {
-  if (req.method === "POST") {
+// Special handling for file upload requests with proper auth
+app.use("/files", (req, res, next) => {
+  if (req.path === "/upload" && req.method === "POST") {
     console.log("Incoming file upload request:", {
       method: req.method,
       contentType: req.headers["content-type"],
@@ -119,7 +119,7 @@ app.use("/files/upload", (req, res, next) => {
   next();
 });
 
-// Register file routes early to bypass some middleware
+// Register file routes with auth middleware
 app.use("/files", fileRoutes);
 
 // Apply rate limiting and security middleware to non-file upload routes

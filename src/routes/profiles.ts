@@ -61,7 +61,6 @@ router.get('/search', async (req: Request<{}, {}, {}, SearchQuery>, res: Respons
         return {
           ...profile.toObject(),
           _count: {
-            ...profile._count,
             followers: followersCount,
             following: followingCount
           }

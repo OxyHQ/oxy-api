@@ -5,7 +5,6 @@ export interface IUser extends Document {
   email: string;
   password: string;
   refreshToken?: string | null;
-  bookmarks: mongoose.Types.ObjectId[];
   following?: mongoose.Types.ObjectId[];
   followers?: mongoose.Types.ObjectId[];
   name?: {
@@ -37,12 +36,6 @@ export interface IUser extends Document {
     muteKeywords: boolean;
   };
   avatar?: string;
-  associated?: {
-    lists?: number;
-    feedgens?: number;
-    starterPacks?: number;
-    labeler?: boolean;
-  };
   labels?: string[];
   description?: string;
   coverPhoto?: string;
