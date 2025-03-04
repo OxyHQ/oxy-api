@@ -2,15 +2,25 @@
 
 ## Overview
 
-Oxy API is a robust backend service built with Express.js and TypeScript.
+Oxy API is a robust backend service built with Express.js and TypeScript for the OxyHQServices module. It provides secure file management, authentication, and real-time communication capabilities for the Mention platform.
 
 ## Tech Stack
 
 - Node.js with TypeScript
 - Express.js for REST API
 - MongoDB with Mongoose for data storage
+- GridFS for file storage
 - Socket.IO for real-time features
 - JWT for authentication
+
+## Features
+
+- Secure file upload, storage, and retrieval
+- User authentication and authorization
+- Real-time communication
+- RESTful API endpoints
+- Token-based security
+- Error handling and logging
 
 ## Getting Started
 
@@ -24,17 +34,17 @@ Oxy API is a robust backend service built with Express.js and TypeScript.
 
 1. Clone the repository
 2. Install dependencies:
-```bash
-npm install
-```
+   ```bash
+   npm install
+   ```
 
 3. Create a `.env` file in the root directory with the following variables:
-```env
-MONGODB_URI=your_mongodb_connection_string
-ACCESS_TOKEN_SECRET=your_jwt_access_token_secret
-REFRESH_TOKEN_SECRET=your_jwt_refresh_token_secret
-PORT=3000
-```
+   ```env
+   MONGODB_URI=your_mongodb_connection_string
+   ACCESS_TOKEN_SECRET=your_jwt_access_token_secret
+   REFRESH_TOKEN_SECRET=your_jwt_refresh_token_secret
+   PORT=3000
+   ```
 
 ### Running the API
 
@@ -49,248 +59,102 @@ npm run build
 npm start
 ```
 
-### Deployment
-
-#### Docker Deployment
-```bash
-# Build the Docker image
-docker build -t mention-api .
-
-# Run the container
-docker run -p 3000:3000 -e MONGODB_URI=your_mongodb_uri mention-api
-```
-
-#### Cloud Deployment (Vercel)
-1. Configure `vercel.json`:
-```json
-{
-  "version": 2,
-  "builds": [{
-    "src": "dist/server.js",
-    "use": "@vercel/node"
-  }],
-  "routes": [{
-    "src": "/(.*)",
-    "dest": "dist/server.js"
-  }]
-}
-```
-
-2. Deploy using Vercel CLI:
-```bash
-vercel --prod
-```
-
 ## API Endpoints
-
-### Authentication Flow
-
-```mermaid
-sequenceDiagram
-    participant Client
-    participant API
-    participant Database
-    
-    Client->>API: POST /auth/signup
-    API->>Database: Create User
-    Database-->>API: User Created
-    API-->>Client: Access Token
-    
-    Client->>API: POST /auth/login
-    API->>Database: Verify Credentials
-    Database-->>API: User Found
-    API-->>Client: Access + Refresh Tokens
-```
 
 ### Authentication
 
 #### POST /auth/signup
 - Creates a new user account
 - Body: `{ username: string, email: string, password: string }`
-- Returns:
-```json
-{
-  "user": {
-    "id": "user_id",
-    "username": "john_doe",
-    "email": "john@example.com",
-    "createdAt": "2023-01-01T00:00:00Z"
-  },
-  "accessToken": "eyJhbGciOiJIUzI1NiIs..."
-}
-```
+- Returns: User object and access token
 
 #### POST /auth/login
 - Authenticates existing user
 - Body: `{ email: string, password: string }`
-- Returns:
-```json
-{
-  "accessToken": "eyJhbGciOiJIUzI1NiIs...",
-  "refreshToken": "eyJhbGciOiJIUzI1NiIs..."
-}
-```
+- Returns: Access and refresh tokens
 
-### Posts
+#### POST /auth/refresh
+- Refreshes access token
+- Header: `Authorization: Bearer {refreshToken}`
+- Returns: New access token
 
-#### POST /posts
-- Creates a new post
+### Files
+
+#### GET /files/:id
+- Streams a file by ID
+- Public route, no authentication required
+- Returns: File stream
+
+#### GET /files/meta/:id
+- Gets metadata for a file
+- Public route, no authentication required
+- Returns: File metadata object
+
+#### POST /files/upload
+- Uploads a new file
 - Authentication: Bearer token required
-- Body:
-```json
-{
-  "text": "Hello world!",
-  "media": ["image1.jpg"],
-  "location": {
-    "longitude": -73.935242,
-    "latitude": 40.730610
-  }
-}
-```
-- Returns:
-```json
-{
-  "id": "post_id",
-  "text": "Hello world!",
-  "media": ["image1.jpg"],
-  "location": {
-    "type": "Point",
-    "coordinates": [-73.935242, 40.730610]
-  },
-  "createdAt": "2023-01-01T00:00:00Z",
-  "user": {
-    "id": "user_id",
-    "username": "john_doe"
-  }
-}
-```
+- Content-Type: multipart/form-data
+- Returns: Uploaded file information
 
-#### GET /posts/explore
-- Retrieves posts for exploration
-- Query params: `limit` (default: 20), `offset` (default: 0)
-- Returns:
-```json
-{
-  "posts": [
-    {
-      "id": "post_id",
-      "text": "Post content",
-      "user": {
-        "id": "user_id",
-        "username": "john_doe"
-      },
-      "createdAt": "2023-01-01T00:00:00Z"
-    }
-  ],
-  "total": 100,
-  "hasMore": true
-}
-```
-
-### Users
-
-#### GET /users/:username
-- Retrieves user profile
+#### DELETE /files/:id
+- Deletes a file by ID
 - Authentication: Bearer token required
-- Returns:
+- Returns: Success message
+
+## Error Handling
+
+The API uses standardized error responses:
+
 ```json
 {
-  "id": "user_id",
-  "username": "john_doe",
-  "bio": "Hello, I'm John!",
-  "followersCount": 1000,
-  "followingCount": 500,
-  "postsCount": 100,
-  "isFollowing": true
+  "message": "Error description",
+  "error": "Detailed error information (development only)"
 }
 ```
 
-## Database Schema Relationships
+Common status codes:
+- 200: Success
+- 201: Created
+- 400: Bad Request
+- 401: Unauthorized
+- 403: Forbidden
+- 404: Not Found
+- 500: Server Error
 
-```mermaid
-erDiagram
-    User ||--o{ Post : creates
-    User ||--o{ Bookmark : has
-    User ||--o{ Follow : follows
-    Post ||--o{ Like : receives
-    Post ||--o{ Comment : has
-    
-    User {
-        string id PK
-        string username
-        string email
-        string password
-        string[] bookmarks
-        datetime createdAt
-    }
-    
-    Post {
-        string id PK
-        string userId FK
-        string text
-        string[] media
-        object location
-        datetime createdAt
-    }
-```
+## Database Schema
 
-## Performance Optimization
-
-### Caching Strategy
-- Implement Redis caching for:
-  - User profiles (TTL: 1 hour)
-  - Popular posts (TTL: 15 minutes)
-  - Trending hashtags (TTL: 5 minutes)
-
-### Database Indexing
+### Files Collection
 ```javascript
-// User Collection Indexes
-db.users.createIndex({ "username": 1 }, { unique: true })
-db.users.createIndex({ "email": 1 }, { unique: true })
-
-// Post Collection Indexes
-db.posts.createIndex({ "userId": 1, "createdAt": -1 })
-db.posts.createIndex({ "location": "2dsphere" })
-```
-
-## Monitoring and Logging
-
-### Health Check Endpoint
-```
-GET /health
-Response: {
-  "status": "healthy",
-  "version": "1.0.0",
-  "uptime": 1000,
-  "mongoStatus": "connected"
+{
+  _id: ObjectId,
+  length: Number,
+  chunkSize: Number,
+  uploadDate: Date,
+  filename: String,
+  contentType: String,
+  metadata: {
+    originalFilename: String,
+    sanitizedFilename: String,
+    uploadDate: Date
+  }
 }
 ```
 
-### Logging
-- Use Winston for structured logging
-- Log levels: error, warn, info, debug
-- Include request ID in all logs
+## Development
 
-## Troubleshooting Guide
-
-### Common Issues
-
-1. Connection Timeouts
+### Project Structure
 ```
-Error: MongoTimeoutError
-Solution: Check MongoDB connection string and network connectivity
-```
-
-2. Authentication Failures
-```
-Error: JsonWebTokenError
-Solution: Verify token expiration and secret keys
-```
-
-3. Rate Limit Exceeded
-```
-Error: 429 Too Many Requests
-Solution: Implement exponential backoff in client
+oxy-api/
+├── src/
+│   ├── middleware/    # Authentication and request processing
+│   ├── models/        # MongoDB schema definitions
+│   ├── routes/        # API endpoint definitions
+│   ├── utils/         # Helper functions
+│   ├── app.ts         # Express application setup
+│   └── server.ts      # Server entry point
+├── dist/              # Compiled JavaScript files
+├── package.json       # Dependencies and scripts
+└── tsconfig.json      # TypeScript configuration
 ```
 
 ## Contributing
@@ -303,4 +167,4 @@ Solution: Implement exponential backoff in client
 
 ## License
 
-AGPL License
+This project is licensed under the AGPL License.
