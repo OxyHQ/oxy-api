@@ -45,62 +45,44 @@ export const authMiddleware = async (req: AuthRequest, res: Response, next: Next
   try {
     const authHeader = req.headers.authorization;
     
-    if (!authHeader) {
+    if (!authHeader?.startsWith('Bearer ')) {
       return res.status(401).json({
         error: 'Authentication required',
-        message: 'No authorization header found'
-      });
-    }
-
-    if (!authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
-        error: 'Invalid authentication format',
-        message: 'Authorization header must start with Bearer'
+        message: 'Invalid or missing authorization header'
       });
     }
 
     const token = authHeader.split(' ')[1];
     
-    if (!token) {
-      return res.status(401).json({
-        error: 'Invalid token',
-        message: 'No token provided in authorization header'
-      });
-    }
-
     if (!process.env.ACCESS_TOKEN_SECRET) {
       logger.error('ACCESS_TOKEN_SECRET not configured');
       return res.status(500).json({ 
         success: false,
-        message: 'Server configuration error',
-        code: 'CONFIG_ERROR'
+        message: 'Server configuration error'
       });
     }
 
     try {
-      // Verify token
-      const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET) as { id: string };
-      
-      if (!decoded.id) {
-        logger.warn('Auth failed: No user ID in token');
+      // Verify token and extract user ID
+      const userId = extractUserIdFromToken(token);
+      if (!userId) {
         return res.status(401).json({
           error: 'Invalid token',
           message: 'User ID not found in token'
         });
       }
-      
+
       // Get user from database
-      const user = await User.findById(decoded.id).select('+refreshToken');
-      
+      const user = await User.findById(userId).select('+refreshToken');
       if (!user) {
-        logger.warn(`Auth failed: User not found for id ${decoded.id}`);
         return res.status(401).json({
           error: 'Invalid token',
           message: 'User not found'
         });
       }
 
-      // Set user in request
+      // Ensure id field is set consistently
+      user.id = user._id.toString();
       req.user = user;
       
       next();
@@ -144,44 +126,38 @@ export const simpleAuthMiddleware = async (req: SimpleAuthRequest, res: Response
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith('Bearer ')) {
-      logger.warn('Auth failed: No token provided');
-      return res.status(401).json({ 
-        success: false,
-        message: 'Authentication required',
-        code: 'NO_TOKEN'
+      return res.status(401).json({
+        error: 'Authentication required',
+        message: 'Invalid or missing authorization header'
       });
     }
 
     const token = authHeader.split(' ')[1];
-    
     if (!process.env.ACCESS_TOKEN_SECRET) {
       logger.error('ACCESS_TOKEN_SECRET not configured');
-      return res.status(500).json({ 
+      return res.status(500).json({
         success: false,
-        message: 'Server configuration error',
-        code: 'CONFIG_ERROR'
+        message: 'Server configuration error'
       });
     }
 
     try {
-      const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET) as { id: string };
-      
-      if (!decoded.id) {
-        logger.warn('Auth failed: No user ID in token');
+      const userId = extractUserIdFromToken(token);
+      if (!userId) {
         return res.status(401).json({
-          success: false,
-          message: 'Invalid session',
-          code: 'NO_USER_ID'
+          error: 'Invalid token',
+          message: 'User ID not found in token'
         });
       }
-      
-      req.user = { id: decoded.id };
+
+      // Set just the ID for simple auth
+      req.user = { id: userId };
       next();
     } catch (error) {
       logger.error('Token verification error:', error);
-      
+
       if (error instanceof jwt.TokenExpiredError) {
-        return res.status(401).json({ 
+        return res.status(401).json({
           success: false,
           message: 'Session expired',
           code: 'TOKEN_EXPIRED'
@@ -189,14 +165,14 @@ export const simpleAuthMiddleware = async (req: SimpleAuthRequest, res: Response
       }
       
       if (error instanceof jwt.JsonWebTokenError) {
-        return res.status(401).json({ 
+        return res.status(401).json({
           success: false,
           message: 'Invalid session',
           code: 'INVALID_TOKEN'
         });
       }
       
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
         message: 'Authentication error',
         code: 'TOKEN_ERROR'
@@ -204,7 +180,7 @@ export const simpleAuthMiddleware = async (req: SimpleAuthRequest, res: Response
     }
   } catch (error) {
     logger.error('Unexpected auth error:', error);
-    return res.status(500).json({ 
+    return res.status(500).json({
       success: false,
       message: 'Authentication error',
       error: error instanceof Error ? error.message : 'Unknown error'

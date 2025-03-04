@@ -19,14 +19,20 @@ const generateTokens = (userId: string, username: string) => {
       throw new Error('Token secrets not configured');
     }
 
+    // Ensure consistent ID format
+    const id = userId.toString();
+
+    // Include just the essential user data in tokens
+    const tokenPayload = { id, username };
+
     const accessToken = jwt.sign(
-      { id: userId, username },
+      tokenPayload,
       process.env.ACCESS_TOKEN_SECRET,
       { expiresIn: "1h" }
     );
     
     const refreshToken = jwt.sign(
-      { id: userId, username },
+      tokenPayload,
       process.env.REFRESH_TOKEN_SECRET,
       { expiresIn: "7d" }
     );
