@@ -220,15 +220,18 @@ router.post("/login", async (req: Request, res: Response) => {
   try {
     const { username, password } = req.body;
     
-    // Validate input
-    if (!username || !password) {
+    // Validate input with detailed errors
+    const validationErrors: { [key: string]: string | null } = {
+      username: !username ? "Username is required" : null,
+      password: !password ? "Password is required" : null
+    };
+
+    const hasErrors = Object.values(validationErrors).some(error => error !== null);
+    if (hasErrors) {
       return res.status(400).json({ 
         success: false,
         message: "Username and password are required",
-        details: {
-          username: !username ? "Username is required" : null,
-          password: !password ? "Password is required" : null
-        }
+        details: validationErrors
       });
     }
 
@@ -281,7 +284,7 @@ router.post("/login", async (req: Request, res: Response) => {
         username: user.username,
         email: user.email,
         name: user.name || {},
-        avatarSource: user.avatar ? { uri: user.avatar } : null,
+        avatar: user.avatar,
         privacySettings: user.privacySettings
       }
     });

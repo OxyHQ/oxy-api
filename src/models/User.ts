@@ -113,7 +113,7 @@ const UserSchema: Schema = new Schema(
       },
     ],
     name: {
-      first: { type: String, required: true },
+      first: { type: String},
       last: { type: String },
     },
     privacySettings: {
