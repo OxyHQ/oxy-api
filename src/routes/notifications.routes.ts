@@ -7,7 +7,7 @@ import {
   deleteNotification,
   getUnreadCount
 } from '../controllers/notification.controller';
-import { authMiddleware } from '../middleware/auth.middleware';
+import { authMiddleware } from '../middleware/auth';
 
 const router = express.Router();
 

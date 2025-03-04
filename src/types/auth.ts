@@ -1,6 +1,6 @@
-import { Request } from 'express';
-import { IUser } from '../models/User';
+/**
+ * @deprecated Use the middleware/auth.ts file instead
+ * This file is kept for backward compatibility
+ */
 
-export interface AuthRequest extends Request {
-    user?: IUser;
-} 
+export { AuthRequest, SimpleAuthRequest } from '../middleware/auth'; 
