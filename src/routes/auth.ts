@@ -44,6 +44,44 @@ const generateTokens = (userId: string, username: string) => {
   }
 };
 
+// Username availability check endpoint
+router.get("/check-username/:username", async (req: Request, res: Response) => {
+  try {
+    const { username } = req.params;
+
+    // Basic validation
+    if (!username || username.length < 3) {
+      return res.status(400).json({
+        available: false,
+        message: "Username must be at least 3 characters long"
+      });
+    }
+
+    // Check if username matches allowed pattern
+    if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+      return res.status(400).json({
+        available: false,
+        message: "Username can only contain letters, numbers, and underscores"
+      });
+    }
+
+    // Check if username exists
+    const existingUser = await User.findOne({ username });
+
+    return res.status(200).json({
+      available: !existingUser,
+      message: existingUser ? "Username is already taken" : "Username is available"
+    });
+
+  } catch (error) {
+    logger.error('Username check error:', error);
+    return res.status(500).json({
+      available: false,
+      message: "Error checking username availability"
+    });
+  }
+});
+
 // User signup API
 router.post("/signup", async (req: Request, res: Response) => {
   try {
