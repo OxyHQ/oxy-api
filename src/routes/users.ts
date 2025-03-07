@@ -105,18 +105,17 @@ router.put('/:userId/privacy', authMiddleware, validateObjectId, async (req: Aut
 // Get user's followers
 router.get('/:userId/followers', validateObjectId, async (req: Request, res: Response) => {
   try {
-    const user = await User.findById(req.params.userId)
-      .populate<{ followers: IUser[] }>({
-        path: 'followers',
-        select: '-password -refreshToken'
-      })
-      .select('followers');
+    const follows = await Follow.find({
+      followedId: req.params.userId,
+      followType: FollowType.USER
+    }).populate({
+      path: 'followerUserId',
+      model: 'User',
+      select: 'name avatar -email'
+    });
 
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    res.json(user.followers || []);
+    const followers = follows.map(follow => follow.followerUserId);
+    res.json(followers);
   } catch (error) {
     logger.error('Error fetching followers:', error);
     res.status(500).json({ message: 'Internal server error' });
@@ -126,18 +125,17 @@ router.get('/:userId/followers', validateObjectId, async (req: Request, res: Res
 // Get user's following
 router.get('/:userId/following', validateObjectId, async (req: Request, res: Response) => {
   try {
-    const user = await User.findById(req.params.userId)
-      .populate<{ following: IUser[] }>({
-        path: 'following',
-        select: '-password -refreshToken'
-      })
-      .select('following');
+    const follows = await Follow.find({
+      followerUserId: req.params.userId,
+      followType: FollowType.USER
+    }).populate({
+      path: 'followedId',
+      model: 'User',
+      select: 'name avatar -email'
+    });
 
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    res.json(user.following || []);
+    const following = follows.map(follow => follow.followedId);
+    res.json(following);
   } catch (error) {
     logger.error('Error fetching following:', error);
     res.status(500).json({ message: 'Internal server error' });
