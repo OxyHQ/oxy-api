@@ -14,6 +14,8 @@ import { rateLimiter, bruteForceProtection } from "./middleware/security";
 import privacyRoutes from "./routes/privacy";
 import analyticsRoutes from "./routes/analytics.routes";
 import paymentRoutes from './routes/payment.routes';
+import walletRoutes from './routes/wallet.routes';
+import karmaRoutes from './routes/karma.routes';
 import jwt from 'jsonwebtoken';
 
 dotenv.config();
@@ -172,6 +174,8 @@ app.use("/privacy", privacyRoutes);
 app.use("/analytics", analyticsRoutes);
 app.use('/payments', paymentRoutes);
 app.use('/notifications', notificationsRouter);
+app.use('/karma', karmaRoutes);
+app.use('/wallet', walletRoutes);
 
 // Global error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
