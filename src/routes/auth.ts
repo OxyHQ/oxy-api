@@ -6,6 +6,7 @@ import Notification from "../models/Notification";
 import { AuthenticationError } from '../utils/authErrors';
 import dotenv from 'dotenv';
 import { logger } from '../utils/logger';
+import { authMiddleware, AuthRequest } from '../middleware/auth';
 
 // Ensure environment variables are loaded
 dotenv.config();
@@ -606,6 +607,45 @@ router.post("/register", async (req: Request, res: Response) => {
       success: false,
       message: "An unexpected error occurred during registration",
       error: error instanceof Error ? error.message : "Unknown error"
+    });
+  }
+});
+
+// User profile endpoint - returns the current authenticated user's profile
+router.get("/me", authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    // User is already authenticated by authMiddleware
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        error: "Authentication required",
+        message: "No user found in request"
+      });
+    }
+
+    // Return the user profile
+    return res.status(200).json({
+      success: true,
+      data: {
+        id: req.user.id || req.user._id,
+        username: req.user.username,
+        email: req.user.email,
+        name: req.user.name || {},
+        avatar: req.user.avatar,
+        privacySettings: req.user.privacySettings,
+        description: req.user.description,
+        coverPhoto: req.user.coverPhoto,
+        location: req.user.location,
+        website: req.user.website,
+        stats: req.user._count
+      }
+    });
+  } catch (error) {
+    logger.error('Error fetching user profile:', error);
+    return res.status(500).json({
+      success: false,
+      error: "Server error",
+      message: "Failed to retrieve user profile"
     });
   }
 });
