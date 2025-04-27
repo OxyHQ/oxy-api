@@ -1,169 +1,179 @@
 # Oxy API Documentation
 
+This document provides an overview of the Oxy API backend service, its architecture, core components, data flow, and usage.
+
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Core Components](#core-components)
+- [Data Flow](#data-flow)
+- [Authentication & Authorization](#authentication--authorization)
+- [REST API Endpoints](#rest-api-endpoints)
+- [Real‑time Notifications](#real‑time-notifications)
+- [File Storage (GridFS)](#file-storage-gridfs)
+- [Middleware & Security](#middleware--security)
+- [Error Handling & Logging](#error-handling--logging)
+- [Configuration & Environment](#configuration--environment)
+- [Deployment](#deployment)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
+
 ## Overview
+Oxy API is a scalable backend service built with Express.js and TypeScript. It exposes RESTful endpoints and real‑time sockets to power authentication, user management, messaging, payments, wallet operations, analytics, and a karma/reputation system.
 
-Oxy API is a robust backend service built with Express.js and TypeScript for the OxyHQServices module. It provides secure file management, authentication, and real-time communication capabilities for the Mention platform.
+## Architecture
 
-## Tech Stack
-
-- Node.js with TypeScript
-- Express.js for REST API
-- MongoDB with Mongoose for data storage
-- GridFS for file storage
-- Socket.IO for real-time features
-- JWT for authentication
-
-## Features
-
-- Secure file upload, storage, and retrieval
-- User authentication and authorization
-- Real-time communication
-- RESTful API endpoints
-- Token-based security
-- Error handling and logging
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js (v14 or higher)
-- MongoDB instance
-- npm or yarn package manager
-
-### Installation
-
-1. Clone the repository
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-3. Create a `.env` file in the root directory with the following variables:
-   ```env
-   MONGODB_URI=your_mongodb_connection_string
-   ACCESS_TOKEN_SECRET=your_jwt_access_token_secret
-   REFRESH_TOKEN_SECRET=your_jwt_refresh_token_secret
-   PORT=3000
-   ```
-
-### Running the API
-
-Development mode:
-```bash
-npm run dev
 ```
+Client App  ↔  HTTP REST  ↔  Express.js  ↔  Controllers  ↔  Services/Mongoose Models  ↔  MongoDB
+                   │
+                   ↔  Socket.IO  ↔  Real‑time Event Handlers
+``` 
 
-Production mode:
-```bash
-npm run build
-npm start
-```
+- **Express.js** handles routing and middleware.
+- **Controllers** implement business logic per feature.
+- **Mongoose Models** map to MongoDB collections.
+- **GridFS** is used for file upload and streaming.
+- **Socket.IO** manages real‑time events for notifications.
 
-## API Endpoints
+## Core Components
 
-### Authentication
+- **Routes** (`src/routes`): Defines REST endpoints per feature (auth, users, profiles, notifications, payments, analytics, wallet, karma, search, privacy, files).
+- **Controllers** (`src/controllers`): Implements request handlers, input validation (Zod), and response logic.
+- **Models** (`src/models`): Mongoose schemas for Users, Wallets, Transactions, Analytics, Notifications, KarmaRules, etc.
+- **Middleware** (`src/middleware`): Security layers (rate limiting, brute force), auth, admin checks, premium feature gating.
+- **Services** (`src/services`): Helper modules (e.g., gridfs file storage, notification dispatch).
+- **Sockets** (`src/sockets`): Authentication and event handling for real‑time notifications.
+- **Utils** (`src/utils`): Shared helper functions (logger, date utilities, error classes).
 
-#### POST /auth/signup
-- Creates a new user account
-- Body: `{ username: string, email: string, password: string }`
-- Returns: User object and access token
+## Data Flow
 
-#### POST /auth/login
-- Authenticates existing user
-- Body: `{ email: string, password: string }`
-- Returns: Access and refresh tokens
+1. **Incoming HTTP Request** → passes through security middleware (CORS, rate limiter, CSRF if enabled).
+2. **Authentication Middleware** validates JWT and attaches `req.user`.
+3. **Route Handler** delegates to Controller.
+4. **Controller** validates input with Zod, interacts with Models.
+5. **Mongoose** performs CRUD operations on MongoDB.
+6. **Controller** returns JSON response or errors.
+7. **Socket.IO** pushes real‑time updates (e.g., new notifications) to the user’s personal room.
 
-#### POST /auth/refresh
-- Refreshes access token
-- Header: `Authorization: Bearer {refreshToken}`
-- Returns: New access token
+## Authentication & Authorization
 
-### Files
+- **JWT** (`ACCESS_TOKEN_SECRET`, `REFRESH_TOKEN_SECRET`) secure login and token refresh flows.
+- **Auth Middleware** extracts Bearer token, verifies signature, and loads `req.user`.
+- **Routes** are protected by `authMiddleware`, and some by `adminMiddleware` or `premiumAccess`.
+- **Refresh Tokens** stored as hashed value in the User document for session validation.
 
-#### GET /files/:id
-- Streams a file by ID
-- Public route, no authentication required
-- Returns: File stream
+## REST API Endpoints
 
-#### GET /files/meta/:id
-- Gets metadata for a file
-- Public route, no authentication required
-- Returns: File metadata object
+### Auth
+- POST `/auth/signup` – Create a new user.
+- POST `/auth/login` – Authenticate user, returning access and refresh tokens.
+- POST `/auth/refresh` – Exchange refresh token for new tokens.
+- POST `/auth/logout` – Invalidate a refresh token.
+- GET  `/auth/validate` – Verify access token validity.
+- GET  `/auth/check-username/:username` – Check username availability.
+- GET  `/auth/me` – Get current user profile (requires auth).
 
-#### POST /files/upload
-- Uploads a new file
-- Authentication: Bearer token required
-- Content-Type: multipart/form-data
-- Returns: Uploaded file information
+### Users & Profiles
+- GET    `/profiles/username/:username` – Fetch public profile.
+- GET    `/profiles/search` – Search for profiles by query.
+- GET    `/profiles/recommendations` – Suggest users to follow.
+- GET    `/users/:userId` – Get user by ID.
+- PUT    `/users/:userId` – Update profile (requires auth).
+- PUT    `/users/:userId/privacy` – Update privacy settings.
+- GET    `/users/:userId/followers` – List followers.
+- GET    `/users/:userId/following` – List following.
+- POST   `/users/:userId/follow` – Follow/unfollow user.
+- DELETE `/users/:userId/follow` – Unfollow explicitly.
+- GET    `/users/:userId/following-status` – Check follow status.
+- POST   `/users/search` – Server‑side search (advanced filtering).
 
-#### DELETE /files/:id
-- Deletes a file by ID
-- Authentication: Bearer token required
-- Returns: Success message
+### Notifications
+- GET    `/notifications` – List user’s notifications (requires auth).
+- GET    `/notifications/unread-count` – Get count of unread notifications.
+- POST   `/notifications` – Create a new notification (admin).
+- PUT    `/notifications/:id/read` – Mark single notification as read.
+- PUT    `/notifications/read-all` – Mark all as read.
+- DELETE `/notifications/:id` – Delete a notification.
 
-## Error Handling
+### Payments & Wallet
+- POST `/payments/process` – Charge user for a plan.
+- POST `/payments/validate` – Validate payment method.
+- GET  `/payments/methods/:userId` – List saved methods.
+- GET  `/wallet/:userId` – Fetch or initialize wallet balance.
+- GET  `/wallet/transactions/:userId` – List transaction history.
+- GET  `/wallet/transaction/:transactionId` – Get specific transaction.
+- POST `/wallet/transfer` – Transfer funds.
+- POST `/wallet/purchase` – Process a purchase.
+- POST `/wallet/withdraw` – Request withdrawal.
 
-The API uses standardized error responses:
+### Analytics & Karma
+- GET  `/analytics` – Time‑series metrics (requires premium access).
+- POST `/analytics/update` – Increment metrics.
+- GET  `/analytics/viewers` – List content viewers.
+- GET  `/analytics/followers` – Get follower analytics.
+- GET  `/karma/leaderboard` – Global karma leaderboard.
+- GET  `/karma/rules` – Listing karma rules.
+- GET  `/karma/:userId/total` – User’s total karma.
+- GET  `/karma/:userId/history` – User’s karma events (requires auth).
+- POST `/karma/award` – Award karma (requires auth).
+- POST `/karma/deduct` – Deduct karma (requires auth).
+- POST `/karma/rules` – Create or update rules (admin only).
 
-```json
-{
-  "message": "Error description",
-  "error": "Detailed error information (development only)"
-}
-```
+## Real‑time Notifications
 
-Common status codes:
-- 200: Success
-- 201: Created
-- 400: Bad Request
-- 401: Unauthorized
-- 403: Forbidden
-- 404: Not Found
-- 500: Server Error
+- **Socket.IO** server runs on the same HTTP server.
+- Clients connect with `token` in handshake auth.
+- After auth, users join room `user:{userId}`.
+- Controllers or services emit events (e.g., `new_notification`) to that room.
 
-## Database Schema
+## File Storage (GridFS)
 
-### Files Collection
-```javascript
-{
-  _id: ObjectId,
-  length: Number,
-  chunkSize: Number,
-  uploadDate: Date,
-  filename: String,
-  contentType: String,
-  metadata: {
-    originalFilename: String,
-    sanitizedFilename: String,
-    uploadDate: Date
-  }
-}
-```
+- Files are streamed into MongoDB GridFS via `gridfs-stream` and `multer`.
+- Routes under `/files` handle upload, download, metadata, and deletion.
+- Metadata includes original filename, content type, upload timestamp.
 
-## Development
+## Middleware & Security
 
-### Project Structure
-```
-oxy-api/
-├── src/
-│   ├── middleware/    # Authentication and request processing
-│   ├── models/        # MongoDB schema definitions
-│   ├── routes/        # API endpoint definitions
-│   ├── utils/         # Helper functions
-│   ├── app.ts         # Express application setup
-│   └── server.ts      # Server entry point
-├── dist/              # Compiled JavaScript files
-├── package.json       # Dependencies and scripts
-└── tsconfig.json      # TypeScript configuration
-```
+- **CORS**: Restricts origins to allowed list.
+- **Rate Limiter** and **Slow Down**: Throttle excessive requests.
+- **Brute Force Protection**: Blocks repeated failed auth attempts.
+- **CSRF**: Enabled on non-API clients if configured.
+
+## Error Handling & Logging
+
+- Centralized error handler returns JSON with `message` and `error` (dev only).
+- Errors are logged via a custom `logger` utility (Winston or console).
+- Validation errors (Zod) return details with HTTP 400.
+
+## Configuration & Environment
+
+Create a `.env` file with:
+```env
+MONGODB_URI=<your-mongo-uri>
+ACCESS_TOKEN_SECRET=<access-secret>
+REFRESH_TOKEN_SECRET=<refresh-secret>
+PORT=3001
+``` 
+Optionally configure rate limits, CORS origins, and premium feature flags.
+
+## Deployment
+
+- Build TypeScript: `npm run build`
+- Start in production: `npm start`
+- Recommend using PM2, Docker, or serverless platforms (e.g., Vercel, AWS Lambda).
 
 ## Contributing
 
 1. Fork the repository
-2. Create your feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a new Pull Request
+2. Create a feature branch
+3. Commit changes with clear messages
+4. Run tests and linters
+5. Open a Pull Request for review
 
 ## License
 
