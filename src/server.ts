@@ -28,10 +28,13 @@ app.use(express.urlencoded({ extended: true }));
 
 // CORS middleware
 app.use((req, res, next) => {
-  const allowedOrigins = ["https://mention.earth", "http://localhost:8081"];
+  const allowedOrigins = ["https://mention.earth", "http://localhost:8081", "http://localhost:8082", "http://localhost:19006"];
   const origin = req.headers.origin as string;
 
-  if (allowedOrigins.includes(origin)) {
+  if (process.env.NODE_ENV !== 'production') {
+    // In development allow all origins
+    res.setHeader("Access-Control-Allow-Origin", origin || "*");
+  } else if (allowedOrigins.includes(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
   }
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
@@ -56,7 +59,7 @@ const server = http.createServer(app);
 // Setup Socket.IO
 const io = new SocketIOServer(server, {
   cors: {
-    origin: ["https://mention.earth", "http://localhost:8081"],
+    origin: ["https://mention.earth", "http://localhost:8081", "http://localhost:8082", "http://localhost:19006"],
     methods: ["GET", "POST"],
     credentials: true
   }
