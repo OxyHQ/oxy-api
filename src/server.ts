@@ -28,7 +28,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // CORS middleware
 app.use((req, res, next) => {
-  const allowedOrigins = ["https://mention.earth", "http://localhost:8081", "http://localhost:8082", "http://localhost:19006"];
+  const allowedOrigins = ["https://mention.earth", "https://homiio.com", "http://localhost:8081", "http://localhost:8082", "http://localhost:19006"];
   const origin = req.headers.origin as string;
 
   if (process.env.NODE_ENV !== 'production') {
