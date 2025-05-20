@@ -79,65 +79,128 @@ router.get('/search', async (req: Request<{}, {}, {}, SearchQuery>, res: Respons
 router.get('/recommendations', async (req: Request<{}, {}, {}, { limit?: string }> & { user?: { id: string } }, res: Response) => {
   try {
     const limit = req.query.limit ? parseInt(req.query.limit) : 10;
+    const offset = req.query.offset ? parseInt(req.query.offset) : 0;
     const currentUserId = req.user?.id;
 
-    logger.info(`Fetching recommendations${currentUserId ? ` for user ${currentUserId}` : ''} with limit ${limit}`);
+    logger.info(`Fetching recommendations${currentUserId ? ` for user ${currentUserId}` : ''} with limit ${limit} and offset ${offset}`);
 
-    // Build exclusion list (self + following)
     let excludeIds: Types.ObjectId[] = [];
+    let followingIds: Types.ObjectId[] = [];
     if (currentUserId) {
       excludeIds.push(new Types.ObjectId(currentUserId));
       const following = await Follow.find({
         followerUserId: currentUserId,
         followType: FollowType.USER
       }).select('followedId');
-      excludeIds = excludeIds.concat(following.map(f => f.followedId instanceof Types.ObjectId ? f.followedId : new Types.ObjectId(f.followedId)));
+      followingIds = following.map(f => f.followedId instanceof Types.ObjectId ? f.followedId : new Types.ObjectId(f.followedId));
+      excludeIds = excludeIds.concat(followingIds);
     }
 
-    // Aggregate users with follower/following counts in one query
-    const recommendations = await User.aggregate([
-      { $match: { _id: { $nin: excludeIds } } },
-      { $sample: { size: limit } },
-      {
-        $lookup: {
-          from: 'follows',
-          let: { userId: '$_id' },
-          pipeline: [
-            { $match: { $expr: { $and: [ { $eq: ['$followedId', '$$userId'] }, { $eq: ['$followType', 'user'] } ] } } }
-          ],
-          as: 'followersArr'
-        }
-      },
-      {
-        $lookup: {
-          from: 'follows',
-          let: { userId: '$_id' },
-          pipeline: [
-            { $match: { $expr: { $and: [ { $eq: ['$followerUserId', '$$userId'] }, { $eq: ['$followType', 'user'] } ] } } }
-          ],
-          as: 'followingArr'
-        }
-      },
-      {
-        $project: {
-          _id: 1,
-          username: 1,
-          name: 1,
-          avatar: 1,
-          description: 1,
-          followersCount: { $size: '$followersArr' },
-          followingCount: { $size: '$followingArr' }
-        }
-      }
-    ]);
+    let recommendations: any[] = [];
+    if (followingIds.length > 0) {
+      // Find users followed by people you follow (mutuals), ranked by how many of your followings follow them
+      recommendations = await Follow.aggregate([
+        { $match: {
+            followerUserId: { $in: followingIds },
+            followType: 'user',
+            followedId: { $nin: excludeIds }
+        }},
+        { $group: {
+            _id: '$followedId',
+            mutualCount: { $sum: 1 }
+        }},
+        { $sort: { mutualCount: -1 } },
+        { $skip: offset },
+        { $limit: limit },
+        // Join with User
+        { $lookup: {
+            from: 'users',
+            localField: '_id',
+            foreignField: '_id',
+            as: 'user'
+        }},
+        { $unwind: '$user' },
+        // Get follower/following counts
+        { $lookup: {
+            from: 'follows',
+            let: { userId: '$_id' },
+            pipeline: [
+              { $match: { $expr: { $and: [ { $eq: ['$followedId', '$$userId'] }, { $eq: ['$followType', 'user'] } ] } } }
+            ],
+            as: 'followersArr'
+        }},
+        { $lookup: {
+            from: 'follows',
+            let: { userId: '$_id' },
+            pipeline: [
+              { $match: { $expr: { $and: [ { $eq: ['$followerUserId', '$$userId'] }, { $eq: ['$followType', 'user'] } ] } } }
+            ],
+            as: 'followingArr'
+        }},
+        { $project: {
+            _id: 1,
+            username: '$user.username',
+            name: '$user.name',
+            avatar: '$user.avatar',
+            description: '$user.description',
+            mutualCount: 1,
+            followersCount: { $size: '$followersArr' },
+            followingCount: { $size: '$followingArr' }
+        }}
+      ]);
+    }
 
-    logger.info(`Returning ${recommendations.length} optimized recommendations`);
+    // If not enough, fill with random users
+    if (recommendations.length < limit) {
+      const alreadyRecommendedIds = recommendations.map(u => u._id);
+      const fillLimit = limit - recommendations.length;
+      const randomUsers = await User.aggregate([
+        { $match: { _id: { $nin: excludeIds.concat(alreadyRecommendedIds) } } },
+        { $sample: { size: fillLimit } },
+        {
+          $lookup: {
+            from: 'follows',
+            let: { userId: '$_id' },
+            pipeline: [
+              { $match: { $expr: { $and: [ { $eq: ['$followedId', '$$userId'] }, { $eq: ['$followType', 'user'] } ] } } }
+            ],
+            as: 'followersArr'
+          }
+        },
+        {
+          $lookup: {
+            from: 'follows',
+            let: { userId: '$_id' },
+            pipeline: [
+              { $match: { $expr: { $and: [ { $eq: ['$followerUserId', '$$userId'] }, { $eq: ['$followType', 'user'] } ] } } }
+            ],
+            as: 'followingArr'
+          }
+        },
+        {
+          $project: {
+            _id: 1,
+            username: 1,
+            name: 1,
+            avatar: 1,
+            description: 1,
+            mutualCount: { $literal: 0 },
+            followersCount: { $size: '$followersArr' },
+            followingCount: { $size: '$followingArr' }
+          }
+        }
+      ]);
+      recommendations = recommendations.concat(randomUsers);
+    }
+
+    logger.info(`Returning ${recommendations.length} improved recommendations`);
     res.json(recommendations.map(u => ({
       id: u._id,
       username: u.username,
       name: u.name,
       avatar: u.avatar,
       description: u.description,
+      mutualCount: u.mutualCount,
       _count: {
         followers: u.followersCount,
         following: u.followingCount
