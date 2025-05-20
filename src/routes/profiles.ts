@@ -79,61 +79,70 @@ router.get('/search', async (req: Request<{}, {}, {}, SearchQuery>, res: Respons
 router.get('/recommendations', async (req: Request<{}, {}, {}, { limit?: string }> & { user?: { id: string } }, res: Response) => {
   try {
     const limit = req.query.limit ? parseInt(req.query.limit) : 10;
-    const currentUserId = req.user?.id; // Optional now
+    const currentUserId = req.user?.id;
 
     logger.info(`Fetching recommendations${currentUserId ? ` for user ${currentUserId}` : ''} with limit ${limit}`);
 
-    // If user is authenticated, exclude them and their following
-    const excludeIds: Types.ObjectId[] = [];
+    // Build exclusion list (self + following)
+    let excludeIds: Types.ObjectId[] = [];
     if (currentUserId) {
-      const currentUser = await User.findById(currentUserId);
-      if (currentUser) {
-        excludeIds.push(new Types.ObjectId(currentUserId));
-        // Get users they're following from the Follow collection
-        const following = await Follow.find({ 
-          followerUserId: currentUserId,
-          followType: FollowType.USER
-        });
-        following.forEach(f => {
-          if (f.followedId instanceof Types.ObjectId) {
-            excludeIds.push(f.followedId);
-          } else {
-            excludeIds.push(new Types.ObjectId(f.followedId));
-          }
-        });
-      }
+      excludeIds.push(new Types.ObjectId(currentUserId));
+      const following = await Follow.find({
+        followerUserId: currentUserId,
+        followType: FollowType.USER
+      }).select('followedId');
+      excludeIds = excludeIds.concat(following.map(f => f.followedId instanceof Types.ObjectId ? f.followedId : new Types.ObjectId(f.followedId)));
     }
 
-    // Get random users not in excludeIds
+    // Aggregate users with follower/following counts in one query
     const recommendations = await User.aggregate([
       { $match: { _id: { $nin: excludeIds } } },
       { $sample: { size: limit } },
-      { $project: { password: 0, refreshToken: 0 } }
+      {
+        $lookup: {
+          from: 'follows',
+          let: { userId: '$_id' },
+          pipeline: [
+            { $match: { $expr: { $and: [ { $eq: ['$followedId', '$$userId'] }, { $eq: ['$followType', 'user'] } ] } } }
+          ],
+          as: 'followersArr'
+        }
+      },
+      {
+        $lookup: {
+          from: 'follows',
+          let: { userId: '$_id' },
+          pipeline: [
+            { $match: { $expr: { $and: [ { $eq: ['$followerUserId', '$$userId'] }, { $eq: ['$followType', 'user'] } ] } } }
+          ],
+          as: 'followingArr'
+        }
+      },
+      {
+        $project: {
+          _id: 1,
+          username: 1,
+          name: 1,
+          avatar: 1,
+          description: 1,
+          followersCount: { $size: '$followersArr' },
+          followingCount: { $size: '$followingArr' }
+        }
+      }
     ]);
 
-    logger.info(`Found ${recommendations.length} potential recommendations`);
-
-    // Enrich with follower/following counts
-    const enrichedRecommendations = await Promise.all(
-      recommendations.map(async (profile) => {
-        const [followersCount, followingCount] = await Promise.all([
-          Follow.countDocuments({ followedId: profile._id, followType: FollowType.USER }),
-          Follow.countDocuments({ followerUserId: profile._id, followType: FollowType.USER })
-        ]);
-
-        return {
-          ...profile,
-          _count: {
-            ...profile._count,
-            followers: followersCount,
-            following: followingCount
-          }
-        };
-      })
-    );
-
-    logger.info(`Returning ${enrichedRecommendations.length} enriched recommendations`);
-    res.json(enrichedRecommendations);
+    logger.info(`Returning ${recommendations.length} optimized recommendations`);
+    res.json(recommendations.map(u => ({
+      id: u._id,
+      username: u.username,
+      name: u.name,
+      avatar: u.avatar,
+      description: u.description,
+      _count: {
+        followers: u.followersCount,
+        following: u.followingCount
+      }
+    })));
   } catch (error) {
     logger.error('Error getting profile recommendations:', error);
     res.status(500).json({ message: 'Internal server error' });
