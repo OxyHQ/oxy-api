@@ -59,7 +59,7 @@ const server = http.createServer(app);
 // Setup Socket.IO
 const io = new SocketIOServer(server, {
   cors: {
-    origin: ["https://mention.earth", "http://localhost:8081", "http://localhost:8082", "http://localhost:19006"],
+    origin: ["https://mention.earth", "https://homiio.com", "http://localhost:8081", "http://localhost:8082", "http://localhost:19006"],
     methods: ["GET", "POST"],
     credentials: true
   }
