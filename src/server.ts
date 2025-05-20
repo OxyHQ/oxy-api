@@ -28,7 +28,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // CORS middleware
 app.use((req, res, next) => {
-  const allowedOrigins = ["https://mention.earth", "https://homiio.com", "http://localhost:8081", "http://localhost:8082", "http://localhost:19006"];
+  const allowedOrigins = ["https://mention.earth", "https://homiio.com", "https://api.oxy.so", "http://localhost:8081", "http://localhost:8082", "http://localhost:19006"];
   const origin = req.headers.origin as string;
 
   if (process.env.NODE_ENV !== 'production') {
@@ -36,17 +36,26 @@ app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", origin || "*");
   } else if (allowedOrigins.includes(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
+  } else if (origin) {
+    // If origin is present but not in allowedOrigins, check if it's a subdomain we want to allow
+    const isDomainAllowed = allowedOrigins.some(allowed => 
+      (origin.endsWith('.oxy.so'))
+    );
+    if (isDomainAllowed) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+    }
   }
+  
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Date, X-Api-Version");
   res.setHeader("Access-Control-Allow-Credentials", "true");
 
-  // Prevent caching issues
-  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-  res.setHeader("Pragma", "no-cache");
-  res.setHeader("Expires", "0");
-
+  // Ensure OPTIONS requests always have CORS headers
   if (req.method === "OPTIONS") {
+    // Prevent caching issues
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
     return res.status(204).end();
   }
 
@@ -59,7 +68,8 @@ const server = http.createServer(app);
 // Setup Socket.IO
 const io = new SocketIOServer(server, {
   cors: {
-    origin: ["https://mention.earth", "https://homiio.com", "http://localhost:8081", "http://localhost:8082", "http://localhost:19006"],
+    origin: ["https://mention.earth", "https://homiio.com", "https://api.oxy.so", "http://localhost:8081", "http://localhost:8082", "http://localhost:19006", 
+    /\.homiio\.com$/, /\.mention\.earth$/, /\.oxy\.so$/],
     methods: ["GET", "POST"],
     credentials: true
   }
