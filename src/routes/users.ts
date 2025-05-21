@@ -30,7 +30,37 @@ router.get('/:userId', validateObjectId, async (req: Request, res: Response) => 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
-    res.json(user);
+
+    // Followers: people who follow this user
+    const followersCount = await Follow.countDocuments({
+      followedId: user._id,
+      followType: 'user'
+    });
+    // Following: people this user follows
+    const followingCount = await Follow.countDocuments({
+      followerUserId: user._id,
+      followType: 'user'
+    });
+
+    // TODO: Replace with actual posts and karma counts if available
+    const postsCount = 0;
+    const karmaCount = 0;
+
+    res.json({
+      ...user.toObject(),
+      stats: {
+        followers: followersCount,
+        following: followingCount,
+        posts: postsCount,
+        karma: karmaCount
+      },
+      _count: {
+        followers: followersCount,
+        following: followingCount,
+        posts: postsCount,
+        karma: karmaCount
+      }
+    });
   } catch (error) {
     logger.error('Error fetching user:', error);
     res.status(500).json({ message: 'Internal server error' });

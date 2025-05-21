@@ -55,8 +55,18 @@ router.get('/search', async (req: Request<{}, {}, {}, SearchQuery>, res: Respons
 
     const enrichedProfiles = await Promise.all(
       profiles.map(async (profile: IUser) => {
-        const followersCount = await User.countDocuments({ following: profile._id });
-        const followingCount = await User.countDocuments({ followers: profile._id });
+        // Followers: people who follow this user
+        const followersCount = await Follow.countDocuments({
+          followedId: profile._id,
+          followType: 'user'
+        });
+        // Following: people this user follows
+        const followingCount = await Follow.countDocuments({
+          followerUserId: profile._id,
+          followType: 'user'
+        });
+
+        logger.info(`Stats for user ${profile._id}: followers=${followersCount}, following=${followingCount}`);
 
         return {
           ...profile.toObject(),
@@ -76,7 +86,7 @@ router.get('/search', async (req: Request<{}, {}, {}, SearchQuery>, res: Respons
 });
 
 // Get recommended profiles
-router.get('/recommendations', async (req: Request<{}, {}, {}, { limit?: string }> & { user?: { id: string } }, res: Response) => {
+router.get('/recommendations', async (req: Request<{}, {}, {}, { limit?: string; offset?: string }> & { user?: { id: string } }, res: Response) => {
   try {
     const limit = req.query.limit ? parseInt(req.query.limit) : 10;
     const offset = req.query.offset ? parseInt(req.query.offset) : 0;
