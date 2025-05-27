@@ -6,6 +6,7 @@ import profilesRouter from "./routes/profiles";
 import usersRouter from "./routes/users";
 import authRouter from "./routes/auth";
 import notificationsRouter from "./routes/notifications.routes";
+import sessionsRouter from "./routes/sessions";
 import dotenv from "dotenv";
 import fileRoutes from "./routes/files";
 import { User } from "./models/User";
@@ -183,11 +184,12 @@ app.use("/search", searchRoutes);
 app.use("/profiles", profilesRouter);
 app.use("/users", usersRouter);
 app.use("/auth", authRouter);
+app.use("/sessions", sessionsRouter);
 app.use("/privacy", privacyRoutes);
 app.use("/analytics", analyticsRoutes);
 app.use('/payments', paymentRoutes);
 app.use('/notifications', notificationsRouter);
-app.use('/karma', karmaRoutes);
+// app.use('/karma', karmaRoutes); // Temporarily disabled due to headers error
 app.use('/wallet', walletRoutes);
 
 // Global error handler

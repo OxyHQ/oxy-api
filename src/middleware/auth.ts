@@ -4,6 +4,7 @@ import User, { IUser } from '../models/User';
 import dotenv from 'dotenv';
 import { logger } from '../utils/logger';
 import { Document } from 'mongoose';
+import { updateSessionActivity } from '../utils/sessionUtils';
 
 // Ensure environment variables are loaded
 dotenv.config();
@@ -84,6 +85,11 @@ export const authMiddleware = async (req: AuthRequest, res: Response, next: Next
       // Ensure id field is set consistently
       user.id = user._id.toString();
       req.user = user;
+      
+      // Update session activity asynchronously
+      updateSessionActivity(token).catch(err => 
+        logger.error('Error updating session activity:', err)
+      );
       
       next();
     } catch (error) {

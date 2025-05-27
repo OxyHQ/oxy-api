@@ -42,13 +42,13 @@ Client App  ↔  HTTP REST  ↔  Express.js  ↔  Controllers  ↔  Services/Mon
 
 ## Core Components
 
-- **Routes** (`src/routes`): Defines REST endpoints per feature (auth, users, profiles, notifications, payments, analytics, wallet, karma, search, privacy, files).
+- **Routes** (`src/routes`): Defines REST endpoints per feature (auth, users, profiles, notifications, payments, analytics, wallet, karma, search, privacy, files, sessions).
 - **Controllers** (`src/controllers`): Implements request handlers, input validation (Zod), and response logic.
-- **Models** (`src/models`): Mongoose schemas for Users, Wallets, Transactions, Analytics, Notifications, KarmaRules, etc.
-- **Middleware** (`src/middleware`): Security layers (rate limiting, brute force), auth, admin checks, premium feature gating.
+- **Models** (`src/models`): Mongoose schemas for Users, Wallets, Transactions, Analytics, Notifications, KarmaRules, Sessions, etc.
+- **Middleware** (`src/middleware`): Security layers (rate limiting, brute force), auth, admin checks, premium feature gating, session activity tracking.
 - **Services** (`src/services`): Helper modules (e.g., gridfs file storage, notification dispatch).
 - **Sockets** (`src/sockets`): Authentication and event handling for real‑time notifications.
-- **Utils** (`src/utils`): Shared helper functions (logger, date utilities, error classes).
+- **Utils** (`src/utils`): Session management utilities, logging, and other shared functions.
 
 ## Data Flow
 
@@ -123,6 +123,12 @@ Client App  ↔  HTTP REST  ↔  Express.js  ↔  Controllers  ↔  Services/Mon
 - POST `/karma/award` – Award karma (requires auth).
 - POST `/karma/deduct` – Deduct karma (requires auth).
 - POST `/karma/rules` – Create or update rules (admin only).
+
+### Sessions (Multi-User Authentication)
+- GET    `/sessions` – List active sessions for authenticated user.
+- DELETE `/sessions/:sessionId` – Remote logout from specific session.
+- POST   `/sessions/logout-others` – Logout from all other sessions (keep current).
+- POST   `/sessions/logout-all` – Logout from all sessions including current.
 
 ## Real‑time Notifications
 

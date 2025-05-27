@@ -7,6 +7,8 @@ import { AuthenticationError } from '../utils/authErrors';
 import dotenv from 'dotenv';
 import { logger } from '../utils/logger';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
+import { createSession, updateSessionActivity } from '../utils/sessionUtils';
+import crypto from 'crypto';
 
 // Ensure environment variables are loaded
 dotenv.config();
@@ -305,13 +307,37 @@ router.post("/login", async (req: Request, res: Response) => {
     // Generate tokens
     const { accessToken, refreshToken } = generateTokens(user._id.toString(), user.username);
 
+    // Extract device information from request
+    const userAgent = req.headers['user-agent'] || '';
+    const deviceId = req.headers['x-device-id'] || crypto.randomUUID();
+    const ipAddress = req.ip || req.connection.remoteAddress || 'unknown';
+    
+    // Parse user agent for device info
+    const deviceInfo = {
+      deviceId: deviceId.toString(),
+      deviceType: userAgent.includes('Mobile') ? 'mobile' : 'desktop',
+      platform: userAgent.includes('iPhone') ? 'iOS' : 
+                userAgent.includes('Android') ? 'Android' : 
+                userAgent.includes('Mac') ? 'macOS' : 
+                userAgent.includes('Windows') ? 'Windows' : 'Unknown',
+      browser: userAgent.includes('Chrome') ? 'Chrome' :
+               userAgent.includes('Firefox') ? 'Firefox' :
+               userAgent.includes('Safari') ? 'Safari' : 'Unknown',
+      os: userAgent,
+      ipAddress,
+      userAgent
+    };
+
     // Store refresh token hash
     try {
       const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
       user.refreshToken = refreshTokenHash;
       await user.save();
+
+      // Create session record
+      await createSession(user._id.toString(), accessToken, deviceInfo);
     } catch (tokenError) {
-      logger.error('Error storing refresh token:', tokenError);
+      logger.error('Error storing refresh token or creating session:', tokenError);
       return res.status(500).json({ 
         success: false,
         message: "Login failed - Unable to complete authentication"
