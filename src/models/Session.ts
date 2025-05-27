@@ -57,7 +57,6 @@ const SessionSchema: Schema = new Schema(
 
 // Index for quick lookups and session management
 SessionSchema.index({ userId: 1, "deviceInfo.deviceId": 1 });
-SessionSchema.index({ token: 1 }, { unique: true });
 SessionSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 // Update lastActive timestamp on session access
