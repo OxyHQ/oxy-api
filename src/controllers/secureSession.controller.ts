@@ -1,7 +1,9 @@
 import { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
+import mongoose from 'mongoose';
 import { User } from '../models/User';
-import { Session } from '../models/Session';
+import { ISession } from '../models/Session';
+import Session from '../models/Session'; // Import the default export
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { SessionAuthResponse, ClientSession } from '../types/secureSession';
@@ -50,42 +52,58 @@ export class SecureSessionController {
       // Find user by username or email
       const user = await User.findOne({
         $or: [{ username }, { email: username }]
-      });
+      }).select('+password'); // Explicitly select password field since it's set to select: false
 
-      if (!user || !await bcrypt.compare(password, user.password)) {
+      if (!user) {
         return res.status(401).json({ error: 'Invalid credentials' });
       }
 
-      // Generate device ID and session
+      if (!user.password) {
+        console.error('User found but no password field:', user.username);
+        return res.status(500).json({ error: 'Server configuration error' });
+      }
+
+      if (!password) {
+        return res.status(400).json({ error: 'Password is required' });
+      }
+
+      // Check password
+      const isPasswordValid = await bcrypt.compare(password, user.password);
+      if (!isPasswordValid) {
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+
+      // Generate device ID and session ID
       const deviceId = generateDeviceId();
       const sessionId = crypto.randomUUID();
       
+      // Generate tokens first
+      const { accessToken, refreshToken } = generateTokens(user._id.toString(), sessionId);
+      
       // Create session
       const session = new Session({
-        sessionId,
         userId: user._id,
-        deviceId,
-        deviceName: deviceName || 'Unknown Device',
-        userAgent: req.headers['user-agent'],
-        ipAddress: req.ip,
+        deviceInfo: {
+          deviceId,
+          deviceType: 'unknown',
+          platform: 'web',
+          browser: req.headers['user-agent'] || 'unknown',
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+          lastActive: new Date()
+        },
+        token: accessToken,
         isActive: true,
-        lastActivity: new Date(),
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
       });
 
       await session.save();
 
-      // Generate tokens (stored server-side only)
-      const { accessToken, refreshToken } = generateTokens(user._id.toString(), sessionId);
-
-      // Update session with tokens
-      session.accessToken = accessToken;
-      session.refreshToken = refreshToken;
-      await session.save();
+      // Note: tokens are stored server-side in the session, not returned to client
 
       // Return only session data and minimal user info
       const response: SessionAuthResponse = {
-        sessionId,
+        sessionId: (session._id as mongoose.Types.ObjectId).toString(), // Use the MongoDB _id as sessionId
         deviceId,
         expiresAt: session.expiresAt.toISOString(),
         user: {
@@ -111,9 +129,9 @@ export class SecureSessionController {
         return res.status(400).json({ error: 'Session ID is required' });
       }
 
-      // Find active session
+      // Find active session using MongoDB _id
       const session = await Session.findOne({
-        sessionId,
+        _id: sessionId,
         isActive: true,
         expiresAt: { $gt: new Date() }
       });
@@ -130,7 +148,7 @@ export class SecureSessionController {
       }
 
       // Update last activity
-      session.lastActivity = new Date();
+      session.deviceInfo.lastActive = new Date();
       await session.save();
 
       res.json({ user });
@@ -144,49 +162,57 @@ export class SecureSessionController {
   static async getTokenBySession(req: Request, res: Response) {
     try {
       const { sessionId } = req.params;
+      console.log('[getTokenBySession] Received sessionId:', sessionId);
 
       if (!sessionId) {
         return res.status(400).json({ error: 'Session ID is required' });
       }
 
-      // Find active session
+      // Find active session using MongoDB _id
       const session = await Session.findOne({
-        sessionId,
+        _id: sessionId,
         isActive: true,
         expiresAt: { $gt: new Date() }
       });
+
+      console.log('[getTokenBySession] Found session:', !!session);
+      if (session) {
+        console.log('[getTokenBySession] Session details:', {
+          id: session._id,
+          userId: session.userId,
+          isActive: session.isActive,
+          expiresAt: session.expiresAt
+        });
+      }
 
       if (!session) {
         return res.status(401).json({ error: 'Invalid or expired session' });
       }
 
-      // Check if access token is still valid
+      // Check if token is still valid
       try {
-        jwt.verify(session.accessToken, JWT_SECRET);
+        jwt.verify(session.token, JWT_SECRET);
         
         // Update last activity
-        session.lastActivity = new Date();
+        session.deviceInfo.lastActive = new Date();
         await session.save();
         
         return res.json({ 
-          accessToken: session.accessToken,
+          accessToken: session.token,
           expiresAt: session.expiresAt 
         });
       } catch (tokenError) {
-        // Access token expired, try to refresh
+        // Token expired, generate new one
         try {
-          jwt.verify(session.refreshToken, JWT_SECRET);
-          
-          // Generate new tokens
-          const { accessToken, refreshToken } = generateTokens(
+          // Generate new token
+          const { accessToken } = generateTokens(
             session.userId.toString(), 
             sessionId
           );
           
-          // Update session with new tokens
-          session.accessToken = accessToken;
-          session.refreshToken = refreshToken;
-          session.lastActivity = new Date();
+          // Update session with new token
+          session.token = accessToken;
+          session.deviceInfo.lastActive = new Date();
           await session.save();
           
           return res.json({ 
@@ -194,7 +220,7 @@ export class SecureSessionController {
             expiresAt: session.expiresAt 
           });
         } catch (refreshError) {
-          // Refresh token also expired, invalidate session
+          // Token expired and cannot be refreshed, invalidate session
           session.isActive = false;
           await session.save();
           
@@ -216,9 +242,9 @@ export class SecureSessionController {
         return res.status(400).json({ error: 'Session ID is required' });
       }
 
-      // Find current session to get user ID
+      // Find current session to get user ID using MongoDB _id
       const currentSession = await Session.findOne({
-        sessionId,
+        _id: sessionId,
         isActive: true
       });
 
@@ -231,13 +257,13 @@ export class SecureSessionController {
         userId: currentSession.userId,
         isActive: true,
         expiresAt: { $gt: new Date() }
-      }).select('sessionId deviceId deviceName userAgent lastActivity expiresAt');
+      }).select('deviceInfo token isActive expiresAt');
 
-      const clientSessions: ClientSession[] = sessions.map(session => ({
-        sessionId: session.sessionId,
-        deviceId: session.deviceId,
-        deviceName: session.deviceName,
-        isActive: session.sessionId === sessionId
+      const clientSessions: ClientSession[] = sessions.map((session: ISession) => ({
+        sessionId: (session._id as any).toString(),
+        deviceId: session.deviceInfo.deviceId,
+        deviceName: 'web', // We don't have deviceName in our schema, use a default
+        isActive: (session._id as any).toString() === sessionId
       }));
 
       res.json({ sessions: clientSessions });
@@ -257,9 +283,9 @@ export class SecureSessionController {
         return res.status(400).json({ error: 'Session ID is required' });
       }
 
-      // Find current session to verify user
+      // Find current session to verify user using MongoDB _id
       const currentSession = await Session.findOne({
-        sessionId,
+        _id: sessionId,
         isActive: true
       });
 
@@ -272,7 +298,7 @@ export class SecureSessionController {
       
       await Session.updateOne(
         { 
-          sessionId: targetId,
+          _id: targetId,
           userId: currentSession.userId 
         },
         { 
@@ -297,9 +323,9 @@ export class SecureSessionController {
         return res.status(400).json({ error: 'Session ID is required' });
       }
 
-      // Find current session to get user ID
+      // Find current session to get user ID using MongoDB _id
       const currentSession = await Session.findOne({
-        sessionId,
+        _id: sessionId,
         isActive: true
       });
 
@@ -335,9 +361,9 @@ export class SecureSessionController {
         return res.status(400).json({ error: 'Session ID is required' });
       }
 
-      // Find active session
+      // Find active session using MongoDB _id
       const session = await Session.findOne({
-        sessionId,
+        _id: sessionId,
         isActive: true,
         expiresAt: { $gt: new Date() }
       });
@@ -347,13 +373,13 @@ export class SecureSessionController {
       }
 
       // Update last activity
-      session.lastActivity = new Date();
+      session.deviceInfo.lastActive = new Date();
       await session.save();
 
       res.json({ 
         valid: true,
         expiresAt: session.expiresAt,
-        lastActivity: session.lastActivity
+        lastActivity: session.deviceInfo.lastActive
       });
     } catch (error) {
       console.error('Validate session error:', error);

@@ -19,10 +19,7 @@ export interface SessionAuthResponse {
   user: {
     id: string;
     username: string;
-    avatar?: {
-      id?: string;
-      url?: string;
-    };
+    avatar?: string; // Changed from object to string to match User model
     // Only non-sensitive data for initial display
   };
 }
