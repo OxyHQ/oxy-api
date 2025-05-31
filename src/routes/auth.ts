@@ -363,7 +363,7 @@ router.post("/refresh", async (req: Request, res: Response) => {
 
       if (!user) {
         logger.warn(`Refresh failed: User not found - ${decoded.id}`);
-        throw new AuthenticationError("Invalid session", 404);
+        throw new AuthenticationError("Invalid session", 401, 'INVALID_SESSION');
       }
 
       // Verify stored refresh token

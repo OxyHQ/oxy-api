@@ -7,6 +7,14 @@ import Session from '../models/Session'; // Import the default export
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { SessionAuthResponse, ClientSession } from '../types/secureSession';
+import { 
+  extractDeviceInfo, 
+  generateDeviceFingerprint, 
+  registerDevice,
+  getDeviceActiveSessions,
+  logoutAllDeviceSessions,
+  DeviceFingerprint 
+} from '../utils/deviceUtils';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 const ACCESS_TOKEN_EXPIRES_IN = '1h';
@@ -43,7 +51,7 @@ export class SecureSessionController {
   // Secure login that returns only session data
   static async secureLogin(req: Request, res: Response) {
     try {
-      const { username, password, deviceName } = req.body;
+      const { username, password, deviceName, deviceFingerprint } = req.body;
 
       if (!username || !password) {
         return res.status(400).json({ error: 'Username and password are required' });
@@ -73,8 +81,16 @@ export class SecureSessionController {
         return res.status(401).json({ error: 'Invalid credentials' });
       }
 
-      // Generate device ID and session ID
-      const deviceId = generateDeviceId();
+      // Extract device info with potential fingerprint reuse
+      let deviceInfo = extractDeviceInfo(req, undefined, deviceName);
+      
+      // Handle device fingerprinting for device ID reuse
+      if (deviceFingerprint) {
+        const fingerprint = generateDeviceFingerprint(deviceFingerprint);
+        deviceInfo = await registerDevice(deviceInfo, fingerprint);
+      }
+
+      // Generate session ID
       const sessionId = crypto.randomUUID();
       
       // Generate tokens first
@@ -83,28 +99,31 @@ export class SecureSessionController {
       // Create session
       const session = new Session({
         userId: user._id,
+        deviceId: deviceInfo.deviceId,
         deviceInfo: {
-          deviceId,
-          deviceType: 'unknown',
-          platform: 'web',
-          browser: req.headers['user-agent'] || 'unknown',
-          ipAddress: req.ip,
-          userAgent: req.headers['user-agent'],
+          deviceName: deviceInfo.deviceName,
+          deviceType: deviceInfo.deviceType,
+          platform: deviceInfo.platform,
+          browser: deviceInfo.browser,
+          os: deviceInfo.os,
+          ipAddress: deviceInfo.ipAddress,
+          userAgent: deviceInfo.userAgent,
+          location: deviceInfo.location,
+          fingerprint: deviceInfo.fingerprint,
           lastActive: new Date()
         },
-        token: accessToken,
+        accessToken,
+        refreshToken,
         isActive: true,
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
       });
 
       await session.save();
 
-      // Note: tokens are stored server-side in the session, not returned to client
-
       // Return only session data and minimal user info
       const response: SessionAuthResponse = {
-        sessionId: (session._id as mongoose.Types.ObjectId).toString(), // Use the MongoDB _id as sessionId
-        deviceId,
+        sessionId: (session._id as mongoose.Types.ObjectId).toString(),
+        deviceId: deviceInfo.deviceId,
         expiresAt: session.expiresAt.toISOString(),
         user: {
           id: user._id.toString(),
@@ -191,14 +210,14 @@ export class SecureSessionController {
 
       // Check if token is still valid
       try {
-        jwt.verify(session.token, JWT_SECRET);
+        jwt.verify(session.accessToken, JWT_SECRET);
         
         // Update last activity
         session.deviceInfo.lastActive = new Date();
         await session.save();
         
         return res.json({ 
-          accessToken: session.token,
+          accessToken: session.accessToken,
           expiresAt: session.expiresAt 
         });
       } catch (tokenError) {
@@ -211,7 +230,7 @@ export class SecureSessionController {
           );
           
           // Update session with new token
-          session.token = accessToken;
+          session.accessToken = accessToken;
           session.deviceInfo.lastActive = new Date();
           await session.save();
           
@@ -249,7 +268,7 @@ export class SecureSessionController {
       });
 
       if (!currentSession) {
-        return res.status(401).json({ error: 'Invalid session' });
+        return res.status(401).json({ error: 'Invalid session', code: 'INVALID_SESSION' });
       }
 
       // Get all active sessions for this user
@@ -261,8 +280,8 @@ export class SecureSessionController {
 
       const clientSessions: ClientSession[] = sessions.map((session: ISession) => ({
         sessionId: (session._id as any).toString(),
-        deviceId: session.deviceInfo.deviceId,
-        deviceName: 'web', // We don't have deviceName in our schema, use a default
+        deviceId: session.deviceId,
+        deviceName: session.deviceInfo?.deviceName || 'Unknown Device',
         isActive: (session._id as any).toString() === sessionId
       }));
 
@@ -290,7 +309,7 @@ export class SecureSessionController {
       });
 
       if (!currentSession) {
-        return res.status(401).json({ error: 'Invalid session' });
+        return res.status(401).json({ error: 'Invalid session', code: 'INVALID_SESSION' });
       }
 
       // Logout target session (default to current session)
@@ -330,7 +349,7 @@ export class SecureSessionController {
       });
 
       if (!currentSession) {
-        return res.status(401).json({ error: 'Invalid session' });
+        return res.status(401).json({ error: 'Invalid session', code: 'INVALID_SESSION' });
       }
 
       // Logout all sessions for this user
@@ -383,6 +402,124 @@ export class SecureSessionController {
       });
     } catch (error) {
       console.error('Validate session error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  // Get all active sessions for a specific device
+  static async getDeviceSessions(req: Request, res: Response) {
+    try {
+      const { sessionId } = req.params;
+      const deviceIdQuery = req.query.deviceId;
+
+      if (!sessionId) {
+        return res.status(400).json({ error: 'Session ID is required' });
+      }
+
+      // Verify current session
+      const currentSession = await Session.findOne({
+        _id: sessionId,
+        isActive: true
+      });
+
+      if (!currentSession) {
+        return res.status(401).json({ error: 'Invalid session', code: 'INVALID_SESSION' });
+      }
+
+      // Use provided deviceId or current session's deviceId
+      const targetDeviceId = (typeof deviceIdQuery === 'string' ? deviceIdQuery : undefined) || currentSession.deviceId;
+      
+      // Get all sessions for the device
+      const deviceSessions = await getDeviceActiveSessions(targetDeviceId);
+
+      res.json({ 
+        deviceId: targetDeviceId,
+        sessions: deviceSessions 
+      });
+    } catch (error) {
+      console.error('Get device sessions error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  // Logout all sessions on a specific device
+  static async logoutAllDeviceSessions(req: Request, res: Response) {
+    try {
+      const { sessionId } = req.params;
+      const { deviceId, excludeCurrent } = req.body;
+
+      if (!sessionId) {
+        return res.status(400).json({ error: 'Session ID is required' });
+      }
+
+      // Verify current session
+      const currentSession = await Session.findOne({
+        _id: sessionId,
+        isActive: true
+      });
+
+      if (!currentSession) {
+        return res.status(401).json({ error: 'Invalid session', code: 'INVALID_SESSION' });
+      }
+
+      // Use provided deviceId or current session's deviceId
+      const targetDeviceId = deviceId || currentSession.deviceId;
+      
+      // Logout all device sessions
+      const excludeSessionId = excludeCurrent ? sessionId : undefined;
+      const loggedOutCount = await logoutAllDeviceSessions(targetDeviceId, excludeSessionId);
+
+      res.json({ 
+        message: `Logged out ${loggedOutCount} sessions from device`,
+        deviceId: targetDeviceId,
+        sessionsTerminated: loggedOutCount
+      });
+    } catch (error) {
+      console.error('Logout device sessions error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  // Update device name
+  static async updateDeviceName(req: Request, res: Response) {
+    try {
+      const { sessionId } = req.params;
+      const { deviceName } = req.body;
+
+      if (!sessionId) {
+        return res.status(400).json({ error: 'Session ID is required' });
+      }
+
+      if (!deviceName) {
+        return res.status(400).json({ error: 'Device name is required' });
+      }
+
+      // Find current session
+      const session = await Session.findOne({
+        _id: sessionId,
+        isActive: true
+      });
+
+      if (!session) {
+        return res.status(401).json({ error: 'Invalid session', code: 'INVALID_SESSION' });
+      }
+
+      // Update device name for all sessions on this device
+      await Session.updateMany(
+        { deviceId: session.deviceId },
+        { 
+          $set: { 
+            'deviceInfo.deviceName': deviceName 
+          }
+        }
+      );
+
+      res.json({ 
+        message: 'Device name updated successfully',
+        deviceName 
+      });
+    } catch (error) {
+      console.error('Update device name error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   }

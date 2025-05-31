@@ -16,4 +16,9 @@ router.post('/logout/:sessionId', SecureSessionController.logoutSession);
 router.post('/logout-all/:sessionId', SecureSessionController.logoutAllSessions);
 router.get('/validate/:sessionId', SecureSessionController.validateSession);
 
+// Device management routes
+router.get('/device/sessions/:sessionId', SecureSessionController.getDeviceSessions);
+router.post('/device/logout-all/:sessionId', SecureSessionController.logoutAllDeviceSessions);
+router.put('/device/name/:sessionId', SecureSessionController.updateDeviceName);
+
 export default router;

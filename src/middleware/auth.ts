@@ -172,9 +172,8 @@ export const simpleAuthMiddleware = async (req: SimpleAuthRequest, res: Response
       
       if (error instanceof jwt.JsonWebTokenError) {
         return res.status(401).json({
-          success: false,
-          message: 'Invalid session',
-          code: 'INVALID_TOKEN'
+          error: 'Invalid session',
+          code: 'INVALID_SESSION'
         });
       }
       
