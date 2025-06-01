@@ -90,35 +90,67 @@ export class SecureSessionController {
         deviceInfo = await registerDevice(deviceInfo, fingerprint);
       }
 
-      // Generate session ID
-      const sessionId = crypto.randomUUID();
-      
-      // Generate tokens first
-      const { accessToken, refreshToken } = generateTokens(user._id.toString(), sessionId);
-      
-      // Create session
-      const session = new Session({
+      // Check for existing active session for this user on this device
+      const existingSession = await Session.findOne({
         userId: user._id,
         deviceId: deviceInfo.deviceId,
-        deviceInfo: {
-          deviceName: deviceInfo.deviceName,
-          deviceType: deviceInfo.deviceType,
-          platform: deviceInfo.platform,
-          browser: deviceInfo.browser,
-          os: deviceInfo.os,
-          ipAddress: deviceInfo.ipAddress,
-          userAgent: deviceInfo.userAgent,
-          location: deviceInfo.location,
-          fingerprint: deviceInfo.fingerprint,
-          lastActive: new Date()
-        },
-        accessToken,
-        refreshToken,
         isActive: true,
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
+        expiresAt: { $gt: new Date() } // Still valid
       });
 
-      await session.save();
+      let session: any;
+
+      if (existingSession) {
+        // Reuse existing session - update activity and extend expiration
+        existingSession.deviceInfo.lastActive = new Date();
+        existingSession.expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // Extend 7 days
+        
+        // Update device name if provided
+        if (deviceName) {
+          existingSession.deviceInfo.deviceName = deviceName;
+        }
+        
+        // Update IP address and user agent
+        existingSession.deviceInfo.ipAddress = deviceInfo.ipAddress;
+        existingSession.deviceInfo.userAgent = deviceInfo.userAgent;
+        
+        await existingSession.save();
+        session = existingSession;
+        
+        console.log(`Reusing existing session for user ${user.username} on device ${deviceInfo.deviceId}`);
+      } else {
+        // Generate session ID for new session
+        const sessionId = crypto.randomUUID();
+        
+        // Generate tokens first
+        const { accessToken, refreshToken } = generateTokens(user._id.toString(), sessionId);
+        
+        // Create new session
+        session = new Session({
+          userId: user._id,
+          deviceId: deviceInfo.deviceId,
+          deviceInfo: {
+            deviceName: deviceInfo.deviceName,
+            deviceType: deviceInfo.deviceType,
+            platform: deviceInfo.platform,
+            browser: deviceInfo.browser,
+            os: deviceInfo.os,
+            ipAddress: deviceInfo.ipAddress,
+            userAgent: deviceInfo.userAgent,
+            location: deviceInfo.location,
+            fingerprint: deviceInfo.fingerprint,
+            lastActive: new Date()
+          },
+          accessToken,
+          refreshToken,
+          isActive: true,
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
+        });
+
+        await session.save();
+        
+        console.log(`Created new session for user ${user.username} on device ${deviceInfo.deviceId}`);
+      }
 
       // Return only session data and minimal user info
       const response: SessionAuthResponse = {
