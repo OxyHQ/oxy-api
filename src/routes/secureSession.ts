@@ -15,6 +15,7 @@ router.get('/sessions/:sessionId', SecureSessionController.getUserSessions);
 router.post('/logout/:sessionId', SecureSessionController.logoutSession);
 router.post('/logout-all/:sessionId', SecureSessionController.logoutAllSessions);
 router.get('/validate/:sessionId', SecureSessionController.validateSession);
+router.get('/validate-header', SecureSessionController.validateSessionFromHeader);
 
 // Device management routes
 router.get('/device/sessions/:sessionId', SecureSessionController.getDeviceSessions);

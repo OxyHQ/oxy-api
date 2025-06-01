@@ -403,37 +403,104 @@ export class SecureSessionController {
     }
   }
 
-  // Validate session
+  // Validate session with user data included - automatically reads from header or URL param
   static async validateSession(req: Request, res: Response) {
     try {
-      const { sessionId } = req.params;
+      // Try to get session ID from header first, then fallback to URL parameter
+      const sessionId = req.header('x-session-id') || req.params.sessionId;
 
       if (!sessionId) {
-        return res.status(400).json({ error: 'Session ID is required' });
+        return res.status(400).json({ 
+          error: 'Session ID is required',
+          hint: 'Provide sessionId in URL parameter or x-session-id header'
+        });
       }
 
-      // Find active session using MongoDB _id
+      // Find active session using MongoDB _id and populate user data
       const session = await Session.findOne({
         _id: sessionId,
         isActive: true,
         expiresAt: { $gt: new Date() }
-      });
+      }).populate('userId', '-password'); // Exclude password field
 
       if (!session) {
-        return res.status(401).json({ error: 'Invalid or expired session' });
+        return res.status(401).json({ 
+          error: 'Invalid or expired session',
+          sessionId: sessionId.substring(0, 8) + '...'
+        });
       }
 
       // Update last activity
       session.deviceInfo.lastActive = new Date();
+      
+      // Optional: Log device fingerprint if provided
+      const deviceFingerprint = req.header('x-device-fingerprint');
+      if (deviceFingerprint) {
+        console.log(`Session ${sessionId.substring(0, 8)}... validated with device fingerprint: ${deviceFingerprint.substring(0, 16)}...`);
+      }
+      
       await session.save();
 
       res.json({ 
         valid: true,
         expiresAt: session.expiresAt,
-        lastActivity: session.deviceInfo.lastActive
+        lastActivity: session.deviceInfo.lastActive,
+        user: session.userId, // Include user data directly
+        source: req.header('x-session-id') ? 'header' : 'parameter' // Debug info
       });
     } catch (error) {
       console.error('Validate session error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  // Validate session using header (convenience method for middleware usage)
+  static async validateSessionFromHeader(req: Request, res: Response) {
+    try {
+      // Try to get session ID from header first, then fallback to param
+      const sessionId = req.header('x-session-id') || req.params.sessionId;
+
+      if (!sessionId) {
+        return res.status(400).json({ 
+          error: 'Session ID is required',
+          hint: 'Provide sessionId in URL parameter or x-session-id header'
+        });
+      }
+
+      // Find active session using MongoDB _id and populate user data
+      const session = await Session.findOne({
+        _id: sessionId,
+        isActive: true,
+        expiresAt: { $gt: new Date() }
+      }).populate('userId', '-password'); // Exclude password field
+
+      if (!session) {
+        return res.status(401).json({ 
+          error: 'Invalid or expired session',
+          sessionId: sessionId.substring(0, 8) + '...'
+        });
+      }
+
+      // Update last activity and optionally log device fingerprint
+      session.deviceInfo.lastActive = new Date();
+      
+      // Extract device fingerprint if provided for enhanced security logging
+      const deviceFingerprint = req.header('x-device-fingerprint');
+      if (deviceFingerprint) {
+        console.log(`Session ${sessionId.substring(0, 8)}... validated with device fingerprint: ${deviceFingerprint.substring(0, 16)}...`);
+      }
+      
+      await session.save();
+
+      res.json({ 
+        valid: true,
+        expiresAt: session.expiresAt,
+        lastActivity: session.deviceInfo.lastActive,
+        user: session.userId, // Include user data directly
+        sessionId: sessionId.substring(0, 8) + '...' // Masked session ID for reference
+      });
+    } catch (error) {
+      console.error('Validate session from header error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   }
