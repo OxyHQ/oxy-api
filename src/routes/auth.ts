@@ -23,8 +23,12 @@ const generateTokens = (userId: string, username: string) => {
     // Ensure consistent ID format
     const id = userId.toString();
 
-    // Include just the essential user data in tokens
-    const tokenPayload = { id, username };
+    // Include both 'id' and 'userId' for compatibility with different parts of the system
+    const tokenPayload = { 
+      id, 
+      userId: id,  // For OxyHQServices compatibility
+      username 
+    };
 
     const accessToken = jwt.sign(
       tokenPayload,

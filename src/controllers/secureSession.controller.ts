@@ -16,7 +16,8 @@ import {
   DeviceFingerprint 
 } from '../utils/deviceUtils';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+const ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET!;
+const REFRESH_TOKEN_SECRET = process.env.REFRESH_TOKEN_SECRET!;
 const ACCESS_TOKEN_EXPIRES_IN = '1h';
 const REFRESH_TOKEN_EXPIRES_IN = '7d';
 
@@ -27,19 +28,29 @@ const generateDeviceId = (): string => {
 
 // Generate session tokens
 const generateTokens = (userId: string, sessionId: string) => {
-  const payload = { 
-    userId, 
-    sessionId,
-    type: 'access'
+  // Include both 'id' and 'userId' for compatibility
+  // 'id' is expected by auth.ts routes
+  // 'userId' is expected by OxyHQServices library
+  const accessPayload = { 
+    id: userId,
+    userId: userId,  // For OxyHQServices compatibility
+    sessionId
   };
   
-  const accessToken = jwt.sign(payload, JWT_SECRET, { 
+  const refreshPayload = {
+    id: userId,
+    userId: userId,  // For OxyHQServices compatibility
+    sessionId,
+    type: 'refresh'
+  };
+  
+  const accessToken = jwt.sign(accessPayload, ACCESS_TOKEN_SECRET, { 
     expiresIn: ACCESS_TOKEN_EXPIRES_IN 
   });
   
   const refreshToken = jwt.sign(
-    { ...payload, type: 'refresh' }, 
-    JWT_SECRET, 
+    refreshPayload, 
+    REFRESH_TOKEN_SECRET, 
     { expiresIn: REFRESH_TOKEN_EXPIRES_IN }
   );
   
@@ -242,7 +253,7 @@ export class SecureSessionController {
 
       // Check if token is still valid
       try {
-        jwt.verify(session.accessToken, JWT_SECRET);
+        jwt.verify(session.accessToken, ACCESS_TOKEN_SECRET);
         
         // Update last activity
         session.deviceInfo.lastActive = new Date();

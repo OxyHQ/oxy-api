@@ -98,7 +98,7 @@ io.use((socket: AuthenticatedSocket, next) => {
   
   try {
     // Verify the token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default_secret');
+    const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET || 'default_secret');
     socket.user = decoded as { id: string, [key: string]: any };
     next();
   } catch (error) {
