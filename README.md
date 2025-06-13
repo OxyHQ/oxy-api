@@ -139,7 +139,3 @@ const oxyServices = new OxyServices({
 ## License
 
 This project is part of the OxyServices ecosystem.
-
----
-
-**For complete system documentation, see [../docs/](../docs/)**

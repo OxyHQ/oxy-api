@@ -252,7 +252,6 @@ Use the provided issue templates when creating new issues to ensure all necessar
 
 ## Getting Help
 
-- **Documentation**: Check the [docs/](docs/) directory
 - **Issues**: Search existing issues or create a new one
 - **Discussions**: Use GitHub Discussions for questions
 
